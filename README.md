@@ -22,6 +22,8 @@ Config files may also contain learning parameters for the RL algorithm. In the c
 ### Training
 The included training script `scripts/train.py` can be used to construct an environment and train an agent directly from a yaml config file. This training script uses Ray RLlib and Ray Tune, however our environments can be integrated into any OpenAI Gym compatible RL framework/implementation.
 
+**Stan: See conda_activate.sh for details how to setup a conda environment with the right libraries before running training**
+
 The following commands will train an rllib agent on one of our baseline environments
 ```shell
 # Dubins aircraft rejoin baseline
