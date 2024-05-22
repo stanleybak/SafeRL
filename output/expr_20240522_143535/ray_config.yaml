@@ -1,0 +1,301 @@
+_fake_gpus: false
+action_space: null
+actions_in_input_normalized: false
+batch_mode: truncate_episodes
+callbacks: !!python/name:saferl.environment.callbacks.CallbacksCaller ''
+clip_actions: false
+clip_param: 0.3
+clip_rewards: null
+collect_metrics_timeout: 180
+compress_observations: false
+create_env_on_driver: false
+custom_eval_function: null
+custom_resources_per_worker: {}
+eager_tracing: false
+entropy_coeff: 0.0
+entropy_coeff_schedule: null
+env: !!python/name:saferl.aerospace.tasks.rejoin.task.DubinsRejoin ''
+env_config:
+  agent: wingman
+  env_objs:
+  - class: &id001 !!python/name:saferl.aerospace.models.dubins.platforms.Dubins2dPlatform ''
+    config:
+      init:
+        heading:
+        - 0
+        - 6.283185307179586
+        initializer: &id002 !!python/name:saferl.environment.tasks.initializers.RandBoundsInitializer ''
+        v:
+        - 250
+        - 300
+        x:
+        - 5000
+        - 10000
+        y:
+        - 5000
+        - 10000
+      v_max: 400
+      v_min: 200
+    name: lead
+  - class: *id001
+    config:
+      controller:
+        actuators:
+        - bounds:
+          - -0.174533
+          - 0.174533
+          name: rudder
+          rescale: true
+          space: continuous
+        - bounds:
+          - -96.5
+          - 96.5
+          name: throttle
+          rescale: true
+          space: continuous
+        class: !!python/name:saferl.environment.models.platforms.AgentController ''
+      init:
+        angle:
+        - 0
+        - 6.283185307179586
+        heading:
+        - 0
+        - 6.283185307179586
+        initializer: !!python/name:saferl.aerospace.tasks.rejoin.initializers.WingmanPolarInitializer ''
+        radius:
+        - 5000
+        - 10000
+        ref: lead
+        v:
+        - 200
+        - 400
+      integration_method: RK45
+      v_max: 400
+      v_min: 200
+    name: wingman
+  - class: !!python/name:saferl.environment.models.geometry.RelativeCircle ''
+    config:
+      aspect_angle: 60
+      init:
+        initializer: *id002
+      r_offset: 500
+      radius: 150
+      ref: lead
+      track_orientation: true
+    name: rejoin_region
+  observation:
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsObservationProcessor ''
+    config:
+      lead: lead
+      mode: magnorm
+      reference: wingman
+      rejoin_region: rejoin_region
+      wingman: wingman
+    name: observation_processor
+  reward:
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.RejoinRewardProcessor ''
+    config:
+      refund: true
+      rejoin_prev_status: in_rejoin_prev
+      rejoin_status: in_rejoin
+      reward: 0.1
+    name: rejoin_reward
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.RejoinFirstTimeRewardProcessor ''
+    config:
+      rejoin_status: in_rejoin
+      reward: 0.25
+    name: rejoin_first_time_reward
+  - class: !!python/name:saferl.environment.tasks.processor.reward.DistanceExponentialChangeRewardProcessor ''
+    config:
+      agent: wingman
+      pivot: 5000
+      target: rejoin_region
+    name: rejoin_dist_change_reward
+  - class: !!python/name:saferl.aerospace.tasks.docking.processors.FailureRewardProcessor ''
+    config:
+      failure_status: failure
+      reward:
+        crash: -1
+        distance: -1
+        leave_rejoin: 0
+        timeout: -1
+    name: failure_reward
+  - class: !!python/name:saferl.aerospace.tasks.docking.processors.SuccessRewardProcessor ''
+    config:
+      reward: 1
+      success_status: success
+      timeout: 1000
+    name: success_reward
+  status:
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsInRejoin ''
+    config:
+      rejoin_region: rejoin_region
+      wingman: wingman
+    name: in_rejoin
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsInRejoinPrev ''
+    config:
+      rejoin_status: in_rejoin
+    name: in_rejoin_prev
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsRejoinTime ''
+    config:
+      rejoin_status: in_rejoin
+    name: rejoin_time
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsTimeElapsed ''
+    config: {}
+    name: time_elapsed
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsLeadDistance ''
+    config:
+      lead: lead
+      wingman: wingman
+    name: lead_distance
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsFailureStatus ''
+    config:
+      lead_distance: lead_distance
+      max_goal_distance: 40000
+      on_leave_rejoin: false
+      safety_margin:
+        aircraft: 100
+      time_elapsed: time_elapsed
+      timeout: 1000
+    name: failure
+  - class: !!python/name:saferl.aerospace.tasks.rejoin.processors.DubinsSuccessStatus ''
+    config:
+      rejoin_time: rejoin_time
+      success_time: 20
+    name: success
+  step_size: 1
+  verbose: false
+env_task_fn: null
+evaluation_config: {}
+evaluation_interval: null
+evaluation_num_episodes: 10
+evaluation_num_workers: 0
+evaluation_parallel_to_training: false
+exploration_config:
+  type: StochasticSampling
+explore: true
+extra_python_environs_for_driver: {}
+extra_python_environs_for_worker: {}
+fake_sampler: false
+framework: tf
+gamma: 0.99
+grad_clip: null
+horizon: null
+ignore_worker_failures: false
+in_evaluation: false
+input: sampler
+input_config: {}
+input_evaluation:
+- is
+- wis
+kl_coeff: 0.2
+kl_target: 0.01
+lambda: 1.0
+local_tf_session_args:
+  inter_op_parallelism_threads: 8
+  intra_op_parallelism_threads: 8
+log_level: WARN
+log_sys_usage: true
+logger_config: null
+lr: 5.0e-05
+lr_schedule: null
+metrics_smoothing_episodes: 100
+min_iter_time_s: 0
+model:
+  _time_major: false
+  _use_default_native_models: false
+  attention_dim: 64
+  attention_head_dim: 32
+  attention_init_gru_gate_bias: 2.0
+  attention_memory_inference: 50
+  attention_memory_training: 50
+  attention_num_heads: 1
+  attention_num_transformer_units: 1
+  attention_position_wise_mlp_dim: 32
+  attention_use_n_prev_actions: 0
+  attention_use_n_prev_rewards: 0
+  conv_activation: relu
+  conv_filters: null
+  custom_action_dist: null
+  custom_model: null
+  custom_model_config: {}
+  custom_preprocessor: null
+  dim: 84
+  fcnet_activation: tanh
+  fcnet_hiddens:
+  - 256
+  - 256
+  framestack: true
+  free_log_std: false
+  grayscale: false
+  lstm_cell_size: 256
+  lstm_use_prev_action: false
+  lstm_use_prev_action_reward: -1
+  lstm_use_prev_reward: false
+  max_seq_len: 20
+  no_final_linear: false
+  num_framestacks: auto
+  post_fcnet_activation: relu
+  post_fcnet_hiddens: []
+  use_attention: false
+  use_lstm: false
+  vf_share_layers: false
+  zero_mean: true
+monitor: -1
+multiagent:
+  count_steps_by: env_steps
+  observation_fn: null
+  policies: {}
+  policies_to_train: null
+  policy_mapping_fn: null
+  replay_mode: independent
+no_done_at_end: false
+normalize_actions: true
+num_cpus_for_driver: 1
+num_cpus_per_worker: 1
+num_envs_per_worker: 1
+num_gpus: 0
+num_gpus_per_worker: 0
+num_sgd_iter: 30
+num_workers: 6
+observation_filter: NoFilter
+observation_space: null
+optimizer: {}
+output: null
+output_compress_columns:
+- obs
+- new_obs
+output_max_file_size: 67108864
+placement_strategy: PACK
+postprocess_inputs: false
+preprocessor_pref: deepmind
+record_env: false
+remote_env_batch_wait_ms: 0
+remote_worker_envs: false
+render_env: false
+rollout_fragment_length: 200
+sample_async: false
+sample_collector: !!python/name:ray.rllib.evaluation.collectors.simple_list_collector.SimpleListCollector ''
+seed: 0
+sgd_minibatch_size: 128
+shuffle_buffer_size: 0
+shuffle_sequences: true
+simple_optimizer: -1
+soft_horizon: false
+synchronize_filters: true
+tf_session_args:
+  allow_soft_placement: true
+  device_count:
+    CPU: 1
+  gpu_options:
+    allow_growth: true
+  inter_op_parallelism_threads: 2
+  intra_op_parallelism_threads: 2
+  log_device_placement: false
+timesteps_per_iteration: 0
+train_batch_size: 4000
+use_critic: true
+use_gae: true
+vf_clip_param: 10.0
+vf_loss_coeff: 1.0
+vf_share_layers: -1
