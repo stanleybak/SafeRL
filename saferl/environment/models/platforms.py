@@ -337,6 +337,7 @@ class BasePlatform(BaseEnvObj):
 
         self.current_actuation = {}
         self.current_control = self.actuator_set.gen_control()
+        self.untrimmed_control = copy.deepcopy(self.current_control)
 
         for obj in self.dependent_objs:
             obj.reset(**kwargs)
@@ -349,16 +350,24 @@ class BasePlatform(BaseEnvObj):
 
         actuation = self.controller.gen_actuation(self.state, action)
         control = self.actuator_set.gen_control(actuation)
+        
+        #print(f"actuation was {actuation}, control is {control} (platforms.py)")
 
         if self.rta is not None:
             control = self.rta.filter_control(sim_state, step_size, control)
 
-        # save current actuation and control
-        self.current_actuation = copy.deepcopy(actuation)
-        self.current_control = copy.deepcopy(control)
+        # OLD: save current actuation and control
+        #self.current_actuation = copy.deepcopy(actuation)
+        self.untrimmed_control = copy.deepcopy(control)
 
         # compute new state if dynamics were applied
         self.next_state = self.dynamics.step(step_size, copy.deepcopy(self.state), control)
+        
+        #print(f"control was {self.current_control}, is now {control}")
+        
+        # New (after trimming): save current actuation and control
+        self.current_actuation = copy.deepcopy(actuation)
+        self.current_control = copy.deepcopy(control)
 
         for obj in self.dependent_objs:
             obj.step_compute(sim_state, action=action)
@@ -382,6 +391,7 @@ class BasePlatform(BaseEnvObj):
             'controller': {
                 'actuation': self.current_actuation,
                 'control': self.current_control,
+                'untrimmed_control': self.untrimmed_control,
             }
         }
 

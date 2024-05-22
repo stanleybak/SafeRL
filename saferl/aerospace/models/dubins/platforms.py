@@ -189,23 +189,36 @@ class Dubins2dDynamics(BaseODESolverDynamics):
         super().__init__(*args, **kwargs)
 
     def step(self, step_size, state, control):
+        
+        # new: if v is close to self.v_min, adjust throttle so that min speed is achieved in 2 sec
+        v = state.v
+        throttle = control[1]
+        
+        if v + 2*throttle < self.v_min:
+            control[1] = (self.v_min - v) / 2
+            #print(f"TRIMMED v was {v}, throttle was {throttle}, adjusted to {control[1]}")
+            
+            
+        if v + 2*throttle > self.v_max:
+            control[1] = (self.v_max - v) / 2
+            
         state = super().step(step_size, state, control)
 
         # enforce velocity limits
-        if state.v < self.v_min or state.v > self.v_max:
-            state.v = max(min(state.v, self.v_max), self.v_min)
+        #if state.v < self.v_min or state.v > self.v_max:
+        #    state.v = max(min(state.v, self.v_max), self.v_min)
 
         return state
 
     def dx(self, t, state_vec, control):
         _, _, heading, v = state_vec
         rudder, throttle = control
-
+        
         # enforce velocity limits
-        if v <= self.v_min and throttle < 0:
-            throttle = 0
-        elif v >= self.v_max and throttle > 0:
-            throttle = 0
+        #if v <= self.v_min and throttle < 0:
+        #    throttle = 0
+        #elif v >= self.v_max and throttle > 0:
+        #    throttle = 0
 
         x_dot = v * math.cos(heading)  # x_dot
         y_dot = v * math.sin(heading)  # y_dot

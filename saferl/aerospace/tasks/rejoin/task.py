@@ -5,6 +5,7 @@ class DubinsRejoin(BaseEnv):
 
     def __init__(self, env_config):
         super().__init__(env_config)
+        
         if "render" in env_config.keys():
             render_config = env_config["render"]
             # get safety margin dims

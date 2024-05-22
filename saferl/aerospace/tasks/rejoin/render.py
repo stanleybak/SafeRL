@@ -50,6 +50,7 @@ class RejoinRenderer(BaseRenderer):
         self.tracectr = self.trace
 
     def render(self, state, mode='human'):
+        print(f"render, mode={mode}")
         # collect state data and set screen
         x_thresh = self.x_threshold / self.scale_factor
         y_thresh = self.y_threshold / self.scale_factor

@@ -92,6 +92,7 @@ def run_rollouts(agent, env, log_dir, num_rollouts=1, render=False):
             while not done:
                 # progress environment state
                 action = agent.compute_single_action(obs)
+                
                 obs, reward, done, info = env.step(action)
                 step_num += 1
                 episode_reward += reward
@@ -280,8 +281,15 @@ def main():
 
     if render_config is not None:
         env_config[RENDER] = render_config
+        
+    #print(f"eval.py, env_config.keys() = {env_config.keys()}")
+    
+    #if args.render and RENDER not in env_config.keys():
+    #    env_config[RENDER] = {'config': {}}
+        
     agent = ppo.PPOTrainer(config=ray_config, env=ray_config['env'])
     agent.restore(ckpt_path)
+    
     env = ray_config['env'](env_config)
 
     # set seed and explore
