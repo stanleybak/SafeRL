@@ -19,7 +19,7 @@ Then see if this runs:
 For training:
 `python scripts/train.py --config configs/rejoin/rejoin_default.yaml`
 
-You may need to modify these commands based on the output path date. To produce eval.log for plotting:
+You may need to modify these commands based on the output path date. To produce `eval.log` for plotting:
 `python3 scripts/eval.py --dir /home/stan/Desktop/repositories/SafeRL/output/expr_20240522_143535/ --num_rollouts 1`
 
 
