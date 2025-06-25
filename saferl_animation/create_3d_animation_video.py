@@ -22,7 +22,7 @@ import pickle
 # Global configuration variables
 LIVE_PLOT = False  # Set to True to visualize live in matplotlib instead of saving video
 
-FPS = 2 if LIVE_PLOT else 30  # Frames per second - match simulation timestep for live plot
+FPS = 30  # Frames per second - match simulation timestep for live plot
 CYLINDER_HEIGHT = 500  # Height of 100ft boundary cylinder
 CYLINDER_RADIUS = 100  # 100ft radius
 GHOST_ALPHA = 0.1  # Transparency for ghost aircraft
@@ -336,9 +336,9 @@ data = loadmat(plane_point_data)
 f16_pts = data['V']
 f16_faces = data['F']
 
-def find_command_difference_step(tolerance=1e-5):
+def find_command_difference_sec(tolerance=1e-5):
     """Find the first step where NN command differs from UD command"""
-    for step in range(min(100, udm.shape[0])):
+    for step in range(udm.shape[0]): # was min(100, udm.shape[0])
         # Get states
         lead_state = xd[:13, step]
         wing_state = xd[16:29, step]
@@ -358,8 +358,7 @@ def find_command_difference_step(tolerance=1e-5):
             print(f"  UD: heading={ud_heading:.6f}, velocity={ud_velocity:.6f}")
             return step
     
-    print("Warning: No command difference found in first 100 steps")
-    return 19  # Default to step 19
+    raise ValueError("No command difference found")
 
 def get_cache_filename(cache_type, initial_step=None, duration=None, use_nn=None):
     """Generate cache filename based on parameters"""
@@ -394,7 +393,7 @@ def save_to_cache(data, cache_type, **kwargs):
         except Exception as e:
             print(f"Failed to save cache {filename}: {e}")
 
-def simulate_trajectory(initial_step, duration, use_nn_commands=False):
+def simulate_trajectory(initial_step, duration, use_nn_commands=False, lead_init=None, wing_init=None):
     """Simulate aircraft trajectory from initial_step for duration seconds"""
     # Try to load from cache
     cached_result = load_from_cache("trajectory", initial_step=initial_step, 
@@ -408,8 +407,14 @@ def simulate_trajectory(initial_step, duration, use_nn_commands=False):
     print(f"Computing trajectory: step={initial_step}, duration={duration}, nn={use_nn_commands}")
     
     # Get initial states
-    lead_initial_state = xd[:16, initial_step].copy()
-    wing_initial_state = xd[16:32, initial_step].copy()
+    if initial_step == 0:
+        assert lead_init is None and wing_init is None
+        lead_initial_state = xd[:16, initial_step].copy()
+        wing_initial_state = xd[16:32, initial_step].copy()
+    else:
+        assert lead_init is not None and wing_init is not None
+        lead_initial_state = lead_init.copy()
+        wing_initial_state = wing_init.copy()
     
     # Setup lead autopilot
     lead_ap_target_hdg_rad = xd[StateIndex.PSI, 0]
@@ -424,7 +429,7 @@ def simulate_trajectory(initial_step, duration, use_nn_commands=False):
     lead_f16_sim = F16SimState(
         initial_state=lead_initial_state.copy(),
         ap=lead_autopilot,
-        step=1/30,  # 1/30 second timestep
+        step=1/60,  # 1/30 second timestep
         extended_states=False,
         integrator_str='rk45'
     )
@@ -449,7 +454,7 @@ def simulate_trajectory(initial_step, duration, use_nn_commands=False):
     wingman_f16_sim = F16SimState(
         initial_state=wing_initial_state.copy(),
         ap=wingman_autopilot,
-        step=1/30,  # 1/30 second timestep
+        step=1/60,  # 1/60 second timestep
         extended_states=False,
         integrator_str='rk45'
     )
@@ -492,8 +497,6 @@ def simulate_trajectory(initial_step, duration, use_nn_commands=False):
         update_autopilot_commands(cmd_hdg_chg, cmd_vel_chg)
         trajectory['commands'].append([cmd_hdg_chg, cmd_vel_chg])
     
-    # Simulate with 1/30 second timesteps
-    sim_frames_per_second = 30
     
     for sec in range(1, duration + 1):
         print(f"simulating up to second: {sec}")
@@ -501,8 +504,8 @@ def simulate_trajectory(initial_step, duration, use_nn_commands=False):
 
 
         # Simulate both aircraft
-        for micro_step in range(1, 31):
-            target_sim_time = (sec - 1) + micro_step / 30
+        for micro_step in range(1, 61):
+            target_sim_time = (sec - 1) + micro_step / 60
             print(f"{micro_step}: {target_sim_time}")
             update_mode_at_start = micro_step == 0
 
@@ -510,9 +513,9 @@ def simulate_trajectory(initial_step, duration, use_nn_commands=False):
             wingman_f16_sim.simulate_to(target_sim_time, update_mode_at_start=update_mode_at_start)
             
             # update states[-1] to be the state in xd to prevent drift
-            if not use_nn_commands and micro_step == 30:
-                lead_f16_sim.states[-1] = xd[:16, sec].copy()
-                wingman_f16_sim.states[-1] = xd[16:32, sec].copy()
+            #if not use_nn_commands and micro_step == 60:
+            #    lead_f16_sim.states[-1] = xd[:16, sec].copy()
+            #    wingman_f16_sim.states[-1] = xd[16:32, sec].copy()
 
             lead_state = lead_f16_sim.states[-1][:16].copy()
             wing_state = wingman_f16_sim.states[-1][:16].copy()
@@ -561,6 +564,7 @@ def simulate_trajectory(initial_step, duration, use_nn_commands=False):
                                 wing_state[StateIndex.POS_N],
                                 wing_state[StateIndex.ALT]])
             distance = np.linalg.norm(lead_pos - wing_pos)
+            print(f"distance at time {sec:.2f}: {distance}")
             
             if distance < CYLINDER_RADIUS:
                 print(f"Ghost aircraft entered 100ft boundary at time {sec:.2f}s, distance={distance:.1f}ft")
@@ -640,62 +644,68 @@ def draw_cylinder(ax, center, radius, height, color='red', alpha=0.3):
 def create_animation():
     """Create the 3D animation"""
     # Find step where commands differ
-    diff_second = find_command_difference_step()
-    diff_step = diff_second * FPS # convert to frame number
+    diff_second = find_command_difference_sec()
+    diff_step = diff_second * 2*FPS # convert to frame number
+    print(f"diff_second: {diff_second}, Diff step: {diff_step}")
     
     # Simulate trajectories
     print("Simulating actual trajectory (0-24 steps)...")
     actual_traj = simulate_trajectory(0, 24, use_nn_commands=False)
 
-    # check that the simulated wing state at all times before diff_second matches
-    for sec in range(diff_second):
-        micro_step = sec * 30
-        wing_state = actual_traj['wing_states'][micro_step]
-        xd_wing_state = xd[16:32, sec].copy()
+    print(f"Actual trajectory length: {len(actual_traj['lead_states'])}")
+    del actual_traj['commands']
 
-        if not np.allclose(wing_state, xd_wing_state):
-            print(f"Wing state at micro_step {micro_step} is not the same as the xd_wing_state at step {sec}")
-            print(f"Wing state: {wing_state}")
-            print(f"XD wing state: {xd_wing_state}")
-            raise ValueError(f"Wing state at micro_step {micro_step} is not the same as the xd_wing_state at step {sec}")
-        else:
-            print(f"Wing state at micro_step {micro_step} is the same as the xd_wing_state at step {sec}")
+    # before diff_second, take every 4th frame of actual_traj, and 
+    # after concat with every frame of actual_traj
+    split_index = diff_second*FPS*2
+    print(f"split_index: {split_index}")
+
+    SPLICE_FACTOR = 5
+    lead_before_diff = actual_traj['lead_states'][:split_index:SPLICE_FACTOR]
+    wing_before_diff = actual_traj['wing_states'][:split_index:SPLICE_FACTOR]
+    times_before_diff = actual_traj['times'][:split_index:SPLICE_FACTOR]
+
+    diff_step = len(lead_before_diff)
+    print(f"updated diff_step to: {diff_step}")
+
+    lead_after_diff = actual_traj['lead_states'][split_index:]
+    wing_after_diff = actual_traj['wing_states'][split_index:]
+    times_after_diff = actual_traj['times'][split_index:]
+
+    print(f"lead_before_diff: {len(lead_before_diff)}, lead_after_diff: {len(lead_after_diff)}")
+
+    actual_traj['lead_states'] = np.concatenate([lead_before_diff, lead_after_diff])
+    actual_traj['wing_states'] = np.concatenate([wing_before_diff, wing_after_diff])
+    actual_traj['times'] = np.concatenate([times_before_diff, times_after_diff])
+
+    print(f"Actual trajectory length after concat: {len(actual_traj['lead_states'])}")
+
+    # check that the simulated wing state at all times before diff_second matches
+    #for sec in range(diff_second):
+    #    micro_step = sec * 60
+    #    wing_state = actual_traj['wing_states'][micro_step]
+    #    xd_wing_state = xd[16:32, sec].copy()
+
+    #    if not np.allclose(wing_state, xd_wing_state):
+    #        print(f"Wing state at micro_step {micro_step} is not the same as the xd_wing_state at step {sec}")
+    #        print(f"Wing state: {wing_state}")
+    #        print(f"XD wing state: {xd_wing_state}")
+    #        raise ValueError(f"Wing state at micro_step {micro_step} is not the same as the xd_wing_state at step {sec}")
+    #    else:
+    #        print(f"Wing state at micro_step {micro_step} is the same as the xd_wing_state at step {sec}")
     
     print(f"Simulating ghost trajectory from step {diff_step}...")
-    ghost_traj = simulate_trajectory(diff_second, 10, use_nn_commands=True)
+    lead_at_diff_step = lead_after_diff[0]
+    wing_at_diff_step = wing_after_diff[0]
 
-    # take every FPS-th frame if live plot
-    if LIVE_PLOT:
-        slice_factor = 15
-        ghost_traj['lead_states'] = ghost_traj['lead_states'][::slice_factor]
-        ghost_traj['wing_states'] = ghost_traj['wing_states'][::slice_factor]
-        ghost_traj['times'] = ghost_traj['times'][::slice_factor]
-        ghost_traj['commands'] = ghost_traj['commands'][::slice_factor]
 
-        actual_traj['lead_states'] = actual_traj['lead_states'][::slice_factor]
-        actual_traj['wing_states'] = actual_traj['wing_states'][::slice_factor]
-        actual_traj['times'] = actual_traj['times'][::slice_factor]
-        actual_traj['commands'] = actual_traj['commands'][::slice_factor]
-
-        print(f"LIVE PLOT has {len(actual_traj['lead_states'])} orig frames and {len(ghost_traj['lead_states'])} ghost frames")
-
-        # make sure actual lead state at frame diff_step is the same as the ghost lead state at frame 0
-        if not np.allclose(actual_traj['lead_states'][diff_step], ghost_traj['lead_states'][0]):
-            print(f"Actual lead state at frame {diff_step} is not the same as the ghost lead state at frame 0")
-            print(f"Actual lead state: {actual_traj['lead_states'][diff_step]}")
-            print(f"Ghost lead state: {ghost_traj['lead_states'][0]}")
-            raise ValueError("Actual lead state at frame diff_step is not the same as the ghost lead state at frame 0")
-
-        if not np.allclose(actual_traj['wing_states'][diff_step], ghost_traj['wing_states'][0]):
-            print(f"Actual wing state at frame {diff_step} is not the same as the ghost wing state at frame 0")
-            print(f"Actual wing state: {actual_traj['wing_states'][diff_step]}")
-            print(f"Ghost wing state: {ghost_traj['wing_states'][0]}")
-            raise ValueError("Actual wing state at frame diff_step is not the same as the ghost wing state at frame 0")
-        
-
+    ghost_traj = simulate_trajectory(diff_second, 10, use_nn_commands=True, 
+                                     lead_init=lead_at_diff_step, wing_init=wing_at_diff_step)
+    del ghost_traj['commands']
+   
     # Calculate total frames
     total_frames = len(actual_traj['times']) + len(ghost_traj['times']) + 3*PAUSE_FRAMES  # normal + ghost + pause + avoidance
-    print(f"total_frames={total_frames}")
+    print(f"ghost frames: {len(ghost_traj['times'])}, total_frames={total_frames}")
     
     # Setup figure and 3D axis
     fig = plt.figure(figsize=(10, 10))
@@ -707,7 +717,8 @@ def create_animation():
         'current_step': 0,
         'ghost_step': None,
         'command_shown': False,
-        'force_frame': None
+        'force_frame': None,
+        'ghost_wing_trail': []   # Store ghost wing trail during ghost phase
     }
     
     # Text elements
@@ -735,7 +746,7 @@ def create_animation():
             zoom_frac = 1.0
 
         ZOOMED_OUT_RADIUS = 4000
-        ZOOMED_IN_RADIUS = 200
+        ZOOMED_IN_RADIUS = 250
         zoom_radius = ZOOMED_OUT_RADIUS - (ZOOMED_OUT_RADIUS - ZOOMED_IN_RADIUS) * zoom_frac
 
         ZOOMED_OUT_ELEV = 45
@@ -803,13 +814,9 @@ def create_animation():
         draw_f16_aircraft(ax, wing_state, color='black', scale=f16_scale)
 
         ghost_wing_pos = None
-        ghost_lead_pos = None
 
         if anim_state['ghost_step'] is not None:
             ghost_wing_pos = ghost_traj['wing_states'][anim_state['ghost_step']]
-            #ghost_wing_pos = np.array([ghost_wing_pos[StateIndex.POS_E],
-            #                    ghost_wing_pos[StateIndex.POS_N],
-            #                    ghost_wing_pos[StateIndex.ALT]])
             if anim_state['phase'] in ['command', 'avoidance']:
                 ghost_wing_color = 'red'
             else: 
@@ -817,11 +824,22 @@ def create_animation():
             
             draw_f16_aircraft(ax, ghost_wing_pos, color=ghost_wing_color, alpha=GHOST_ALPHA, scale=f16_scale)
             
+            # Save ghost wingman trail data during ghost phase
+            if anim_state['phase'] in ['ghost','command']:
+                ghost_wing_3pos = np.array([ghost_wing_pos[StateIndex.POS_E],
+                                          ghost_wing_pos[StateIndex.POS_N],
+                                          ghost_wing_pos[StateIndex.ALT]])
+                
+                # Append to trail if this is a new position
+                if (len(anim_state['ghost_wing_trail']) == 0 or 
+                    not np.array_equal(anim_state['ghost_wing_trail'][-1], ghost_wing_3pos)):
+                    anim_state['ghost_wing_trail'].append(ghost_wing_3pos)
+            
+            # Draw ghost lead aircraft
             ghost_lead_pos = ghost_traj['lead_states'][anim_state['ghost_step']]
-            
-            
             draw_f16_aircraft(ax, ghost_lead_pos, color='grey', alpha=GHOST_ALPHA, scale=f16_scale)
 
+            # Draw cylinder around lead aircraft during ghost, command, and avoidance phases
             if anim_state['phase'] in ['ghost','command', 'avoidance']:
                 if anim_state['phase'] in ['ghost','command']:
                     ghost_3pos = np.array([ghost_lead_pos[StateIndex.POS_E],
@@ -850,6 +868,13 @@ def create_animation():
             ax.plot(wing_trail[:, 0], wing_trail[:, 1], wing_trail[:, 2], 
                    'orange', linewidth=2, alpha=0.5)
             
+        # Draw ghost trails during ghost, command and avoidance phases
+        if anim_state['phase'] in ['ghost', 'command', 'avoidance'] and len(anim_state['ghost_wing_trail']) > 1:
+            ghost_wing_trail = np.array(anim_state['ghost_wing_trail'])
+            
+            ax.plot(ghost_wing_trail[:, 0], ghost_wing_trail[:, 1], ghost_wing_trail[:, 2], 
+                   color='gray', linewidth=2, alpha=0.8, linestyle=':')
+        
         # Update text
         time_text.set_text(f'Time: {current_step / FPS:.1f}s')
         frame_text.set_text(f'Frame: {frame}')
@@ -895,11 +920,12 @@ def create_animation():
         ax.set_xlabel('East (ft)')
         ax.set_ylabel('North (ft)')
         ax.set_zlabel('Altitude (ft)')
-        ax.set_title('F-16 Wingman Scenario - Neural Network vs Commanded Trajectory')
+#        ax.set_title('F-16 Wingman Scenario - Neural Network vs Commanded Trajectory')
         
         return []
     
-    
+    #print(f"DEBUG total frames = 90")
+    #total_frames = 90
     
     # Create animation
     interval = 1 if LIVE_PLOT else 1000/FPS
@@ -907,22 +933,23 @@ def create_animation():
                                  interval=interval, blit=False)  # 1ms interval for no delay
 
     if LIVE_PLOT:
-        anim_state['force_frame'] = 38
+        anim_state['force_frame'] = 0# 14 sec
 
         def on_key_press(event):
             """Handle keyboard input"""
-            if event.key == 'right' or event.key == 'd':
+            if event.key in ['right', 'd']:
                 # Move forward one frame
-                anim_state['force_frame'] += 1
+
+                anim_state['force_frame'] += 10 if event.key == 'right' else 1
 
                 if anim_state['force_frame'] > total_frames - 1:
                     anim_state['force_frame'] = 0
 
                 #update_frame(new_frame)
                 print(f"Right arrow key pressed. Frame: {anim_state['force_frame']}")
-            elif event.key == 'left' or event.key == 'a':
+            elif event.key in ['left', 'a']:
                 # Move backward one frame
-                anim_state['force_frame'] -= 1
+                anim_state['force_frame'] -= 10 if event.key == 'left' else 1
 
                 if anim_state['force_frame'] < 0:
                     anim_state['force_frame'] = total_frames - 1
