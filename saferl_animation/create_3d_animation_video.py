@@ -20,7 +20,7 @@ import math
 import pickle
 
 # Global configuration variables
-LIVE_PLOT = False  # Set to True to visualize live in matplotlib instead of saving video
+LIVE_PLOT = True  # Set to True to visualize live in matplotlib instead of saving video
 
 FPS = 30  # Frames per second - match simulation timestep for live plot
 CYLINDER_HEIGHT = 500  # Height of 100ft boundary cylinder
